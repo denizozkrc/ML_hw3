@@ -141,24 +141,78 @@ class DecisionTree:
         """
             Your implementation
         """
-        if len(np.unique(labels)) == 1:
+
+        if len(np.unique(labels)) == 1:  # pure node
+            return TreeLeafNode(dataset, labels)
+        elif len(used_attributes) == len(self.features):  # used all attributes, still not pure
             return TreeLeafNode(dataset, labels)
         
-        # If there are no more attributes to split, return a leaf node
-        # if len(used_attributes) == len(self.features):
-        #    return TreeLeafNode(dataset, labels)
+        selected_attribute_criterion_value = 0
+        selected_attribute = -1 #don't need to make it -1 but just in case
+
+        if self.criterion == "information gain":
+            for attribute in range(len(self.features)):
+                if attribute not in used_attributes:
+                    gain = self.calculate_information_gain__(dataset, labels, attribute)
+                    if gain > selected_attribute_criterion_value:
+                        selected_attribute_criterion_value = gain
+                        selected_attribute = attribute
+        elif self.criterion == "gain ratio":
+            for attribute in range(len(self.features)):
+                if attribute not in used_attributes:
+                    gain = self.calculate_gain_ratio__(dataset, labels, attribute)
+                    if gain > selected_attribute_criterion_value:
+                        selected_attribute_criterion_value = gain
+                        selected_attribute = attribute
+
+        if (selected_attribute == -1):
+            print("ERROR: selected attribute is -1")
+            return None
+
+        node = TreeNode(selected_attribute)
+        used_attributes.append(selected_attribute)
+
+        # For each value of attribute
+        attribute_values = np.unique(dataset[:, selected_attribute])
+        for attribute_value in attribute_values:
+            sample_indexes_with_attribute_value = np.where(dataset[:, selected_attribute] == attribute_value)
+            samples_with_attribute_value = dataset[sample_indexes_with_attribute_value]
+            labels_with_attribute_value = labels[sample_indexes_with_attribute_value]
+            if len(samples_with_attribute_value) == 0:  # atribute value not seen in this node, do nothing or empty node?
+                continue
+            else:
+                node.subtrees[str(attribute_value)] = self.ID3__(samples_with_attribute_value, labels_with_attribute_value, used_attributes)
+        return node
 
     def predict(self, x):
         """
         :param x: a data instance, 1 dimensional Python array 
         :return: predicted label of x
-        
+
         If a leaf node contains multiple labels in it, the majority label should be returned as the predicted label
         """
         predicted_label = None
         """
             Your implementation
         """
+        node = self.root
+        while not isinstance(node, TreeLeafNode):
+            attribute = node.attribute
+            attribute_value = x[attribute]
+            if str(attribute_value) in node.subtrees: #search in dictionary
+                node = node.subtrees[str(attribute_value)]
+            else:
+                print(f"ERROR: attribute value {attribute_value}  of attribute {attribute} not found in node")
+                return None
+
+        # came to the leaf
+        unique_labels = np.unique(node.labels)
+        unique_label_counts = np.zeros(len(unique_labels))
+        labels = node.labels
+        for label in unique_labels:
+            unique_label_counts[label] = np.count_nonzero(labels == label)
+        max_counted_label_index = np.argmax(unique_label_counts)
+        predicted_label = unique_labels[max_counted_label_index]
 
         return predicted_label
 

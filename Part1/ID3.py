@@ -26,9 +26,18 @@ class DecisionTree:
         self.criterion = criterion
         # it keeps the root node of the decision tree
         self.root = None
+        self.most_important_features = []
 
         # further variables and functions can be added...
-
+    def max_labels(self, current_node: TreeNode):  # retruns the most probable label
+        num_of_labels = np.zeros(len(self.labels))
+        for attr_val in current_node.subtrees:
+            if isinstance(current_node.subtrees[attr_val], TreeNode):
+                num_of_labels += self.max_labels(current_node.subtrees[attr_val])
+            else:  # leaf node
+                for i, label in enumerate(self.labels):
+                    num_of_labels[i] += np.sum(current_node.subtrees[attr_val].labels == label)
+        return self.labels[np.argmax(num_of_labels)]
 
     def calculate_entropy__(self, dataset, labels):
         """
@@ -45,10 +54,9 @@ class DecisionTree:
         unique_labels = np.unique(labels)
         num_of_each_label = np.zeros(len(unique_labels))
         for i, label in enumerate(unique_labels):
-            num_of_each_label[i] = np.count_nonzero(labels == label)
-        # entropy = -sum((count / total) * math.log2(count / total)
+            num_of_each_label[i] = np.sum(labels == label)
         p_i = num_of_each_label / total_length
-        entropy_value = -(np.sum((p_i) * np.log2(p_i)))
+        entropy_value = -(np.sum((p_i) * np.log(p_i)))
 
         return entropy_value
 
@@ -67,12 +75,14 @@ class DecisionTree:
         # I will take attribute as a number [0, 15]
         attribute_values = np.unique(dataset[:, attribute])
         dataset_length = len(dataset)
-        for attribute_value in attribute_values:
+        average_entropy_from_attribute_value = np.zeros(len(attribute_values))
+        for i, attribute_value in enumerate(attribute_values):
             sample_indexes_with_attribute_value = np.where(dataset[:, attribute] == attribute_value)
             samples_with_attribute_value = dataset[sample_indexes_with_attribute_value]
             labels_with_attribute_value = labels[sample_indexes_with_attribute_value]
             entropy = self.calculate_entropy__(samples_with_attribute_value, labels_with_attribute_value)
-            average_entropy += (len(samples_with_attribute_value) / dataset_length) * entropy
+            average_entropy_from_attribute_value[i] = (len(samples_with_attribute_value) / dataset_length) * entropy
+        average_entropy = np.sum(average_entropy_from_attribute_value)
         return average_entropy
 
     def calculate_information_gain__(self, dataset, labels, attribute):
@@ -105,11 +115,12 @@ class DecisionTree:
         """
         attribute_values = np.unique(dataset[:, attribute])
         dataset_length = len(dataset)
-        for attribute_value in attribute_values:
+        ii_from_attribute_value = np.zeros(len(attribute_values))
+        for i, attribute_value in enumerate(attribute_values):
             sample_indexes_with_attribute_value = np.where(dataset[:, attribute] == attribute_value)
             div = len(sample_indexes_with_attribute_value) / dataset_length
-            ii = -div * np.log2(div)
-            intrinsic_info += ii
+            ii_from_attribute_value[i] = -div * np.log(div)
+        intrinsic_info = np.sum(ii_from_attribute_value)
         return intrinsic_info
 
     def calculate_gain_ratio__(self, dataset, labels, attribute):
@@ -141,14 +152,13 @@ class DecisionTree:
         """
             Your implementation
         """
-
         if len(np.unique(labels)) == 1:  # pure node
             return TreeLeafNode(dataset, labels)
         elif len(used_attributes) == len(self.features):  # used all attributes, still not pure
             return TreeLeafNode(dataset, labels)
         
         selected_attribute_criterion_value = 0
-        selected_attribute = -1 #don't need to make it -1 but just in case
+        selected_attribute = -1
 
         if self.criterion == "information gain":
             for attribute in range(len(self.features)):
@@ -164,10 +174,9 @@ class DecisionTree:
                     if gain > selected_attribute_criterion_value:
                         selected_attribute_criterion_value = gain
                         selected_attribute = attribute
-
-        if (selected_attribute == -1):
-            print("ERROR: selected attribute is -1")
-            return None
+        
+        if (len(self.most_important_features) < 5):
+            self.most_important_features.append(selected_attribute)
 
         node = TreeNode(selected_attribute)
         used_attributes.append(selected_attribute)
@@ -178,7 +187,7 @@ class DecisionTree:
             sample_indexes_with_attribute_value = np.where(dataset[:, selected_attribute] == attribute_value)
             samples_with_attribute_value = dataset[sample_indexes_with_attribute_value]
             labels_with_attribute_value = labels[sample_indexes_with_attribute_value]
-            if len(samples_with_attribute_value) == 0:  # atribute value not seen in this node, do nothing or empty node?
+            if len(samples_with_attribute_value) == 0:  # atribute value not seen in this node, do nothing
                 continue
             else:
                 node.subtrees[str(attribute_value)] = self.ID3__(samples_with_attribute_value, labels_with_attribute_value, used_attributes)
@@ -195,27 +204,33 @@ class DecisionTree:
         """
             Your implementation
         """
-        node = self.root
-        while not isinstance(node, TreeLeafNode):
-            attribute = node.attribute
-            attribute_value = x[attribute]
-            if str(attribute_value) in node.subtrees: #search in dictionary
-                node = node.subtrees[str(attribute_value)]
-            else:
-                print(f"ERROR: attribute value {attribute_value}  of attribute {attribute} not found in node")
-                return None
+        root = self.root
+        while isinstance(root, TreeNode):
+            root_attribute = root.attribute
+            attribute_value_of_x = x[root_attribute]
+            if str(attribute_value_of_x) in root.subtrees:
+                root = root.subtrees[str(attribute_value_of_x)]
+            else:  # attribute value was not in the training data
+                return self.max_labels(root)  # return the most common label in the subtree
 
         # came to the leaf
-        unique_labels = np.unique(node.labels)
-        unique_label_counts = np.zeros(len(unique_labels))
-        labels = node.labels
-        for label in unique_labels:
-            unique_label_counts[label] = np.count_nonzero(labels == label)
-        max_counted_label_index = np.argmax(unique_label_counts)
+        unique_labels = np.unique(root.labels)
+        labels = root.labels
+        max_counted_label_index = -1
+        max_label_count = -1
+        for i, label in enumerate(unique_labels):
+            count = np.sum(labels == label)
+            if count > max_label_count:
+                max_label_count = count
+                max_counted_label_index = i
         predicted_label = unique_labels[max_counted_label_index]
-
         return predicted_label
 
     def train(self):
-        self.root = self.ID3__(self.dataset, self.labels, [])
+        self.most_important_features = []
+        self.root = self.ID3__(np.array(self.dataset), np.array(self.labels), [])
         print("Training completed")
+        # print("Most important three features: ", self.features[self.most_important_features])
+        print(f"For criterion {self.criterion}:")
+        for i, feature in enumerate(self.most_important_features):
+            print(f"    most important feature {i}: {self.features[feature]}")
